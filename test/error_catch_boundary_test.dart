@@ -4,15 +4,28 @@ import 'package:flutter_test/flutter_test.dart';
 
 class BuggyWidget extends StatelessWidget {
   final bool shouldThrow;
-  const BuggyWidget({super.key, required this.shouldThrow});
+  final String errorMessage;
+
+  const BuggyWidget({
+    super.key,
+    required this.shouldThrow,
+    this.errorMessage = 'Test build failure inside BuggyWidget',
+  });
 
   @override
   Widget build(BuildContext context) {
     if (shouldThrow) {
-      throw Exception('Test build failure inside BuggyWidget');
+      throw Exception(errorMessage);
     }
     return const Text('BuggyWidget Rendered Successfully');
   }
+}
+
+class IgnorableException implements Exception {
+  final String message;
+  IgnorableException(this.message);
+  @override
+  String toString() => 'IgnorableException: $message';
 }
 
 void main() {
@@ -34,9 +47,7 @@ void main() {
       'catches build error and displays DefaultErrorFallback with retry button',
       (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
-    FlutterError.onError = (FlutterErrorDetails details) {
-      // Suppress console error output for expected test error
-    };
+    FlutterError.onError = (FlutterErrorDetails details) {};
 
     await tester.pumpWidget(
       const MaterialApp(
@@ -135,10 +146,8 @@ void main() {
 
     expect(find.byType(DefaultErrorFallback), findsOneWidget);
 
-    // Change state so rebuild succeeds
     shouldFail = false;
 
-    // Tap retry button
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
 
@@ -174,6 +183,172 @@ void main() {
     expect(find.text('Healthy Neighbor Widget 1'), findsOneWidget);
     expect(find.text('Healthy Neighbor Widget 2'), findsOneWidget);
     expect(find.byType(DefaultErrorFallback), findsOneWidget);
+
+    FlutterError.onError = originalOnError;
+  });
+
+  testWidgets('resets state via ErrorBoundaryController',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    final controller = ErrorBoundaryController();
+    bool shouldFail = true;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ErrorBoundary(
+          controller: controller,
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              if (shouldFail) {
+                throw Exception('Controller test failure');
+              }
+              return const Text('Controller Recovered State');
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+
+    shouldFail = false;
+    controller.reset();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Controller Recovered State'), findsOneWidget);
+    expect(find.byType(DefaultErrorFallback), findsNothing);
+
+    FlutterError.onError = originalOnError;
+  });
+
+  testWidgets('inherits fallbackBuilder and onError from GlobalErrorBoundaryConfig',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    FlutterErrorBoundaryDetails? globalLoggedDetails;
+
+    await tester.pumpWidget(
+      GlobalErrorBoundaryConfig(
+        onError: (details) {
+          globalLoggedDetails = details;
+        },
+        fallbackBuilder: (context, details, reset) {
+          return Text('Global Fallback UI: ${details.error}');
+        },
+        child: const MaterialApp(
+          home: ErrorBoundary(
+            child: BuggyWidget(shouldThrow: true),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+        find.textContaining(
+            'Global Fallback UI: Exception: Test build failure inside BuggyWidget'),
+        findsOneWidget);
+    expect(globalLoggedDetails, isNotNull);
+    expect(globalLoggedDetails!.error.toString(),
+        contains('Test build failure inside BuggyWidget'));
+
+    FlutterError.onError = originalOnError;
+  });
+
+  testWidgets('respects shouldCatch predicate filter',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ErrorBoundary(
+          shouldCatch: (details) {
+            // Ignore IgnorableException
+            return details.error is! IgnorableException;
+          },
+          fallbackBuilder: (context, details, reset) {
+            return const Text('Caught Error Fallback');
+          },
+          child: Builder(
+            builder: (context) {
+              throw IgnorableException('Do not catch me');
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // Since shouldCatch returned false, fallback builder is not used by the error boundary
+    expect(find.text('Caught Error Fallback'), findsNothing);
+
+    FlutterError.onError = originalOnError;
+  });
+
+  testWidgets('executes auto-retry mechanism when AutoRetryConfig is provided',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    int buildCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ErrorBoundary(
+          autoRetryConfig: const AutoRetryConfig(
+            maxRetries: 2,
+            retryInterval: Duration(milliseconds: 100),
+          ),
+          child: Builder(
+            builder: (context) {
+              buildCount++;
+              if (buildCount == 1) {
+                throw Exception('First attempt failure');
+              }
+              return Text('Success on build $buildCount');
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+
+    // Fast-forward time for auto-retry
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Success on build 2'), findsOneWidget);
+    expect(find.byType(DefaultErrorFallback), findsNothing);
+
+    FlutterError.onError = originalOnError;
+  });
+
+  testWidgets('renders Debug Details in DefaultErrorFallback when showDebugDetails is true',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: GlobalErrorBoundaryConfig(
+          showDebugDetails: true,
+          child: ErrorBoundary(
+            child: BuggyWidget(shouldThrow: true),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+    expect(find.text('Debug Details'), findsOneWidget);
 
     FlutterError.onError = originalOnError;
   });

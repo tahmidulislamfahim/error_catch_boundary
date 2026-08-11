@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'error_details.dart';
 
@@ -10,17 +11,23 @@ class DefaultErrorFallback extends StatelessWidget {
   /// Callback executed when the user taps the retry button.
   final VoidCallback onRetry;
 
+  /// Controls whether debug details (stack trace & error message) are viewable.
+  /// Defaults to [kDebugMode] if null.
+  final bool? showDebugDetails;
+
   /// Creates a [DefaultErrorFallback] instance.
   const DefaultErrorFallback({
     super.key,
     required this.details,
     required this.onRetry,
+    this.showDebugDetails,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isDebugModeEnabled = showDebugDetails ?? kDebugMode;
 
     final backgroundColor = colorScheme.errorContainer;
     final contentColor = colorScheme.onErrorContainer;
@@ -72,6 +79,44 @@ class DefaultErrorFallback extends StatelessWidget {
                 ),
               ),
             ),
+            if (isDebugModeEnabled) ...[
+              const SizedBox(height: 12),
+              Theme(
+                data: theme.copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(top: 8),
+                  iconColor: contentColor,
+                  collapsedIconColor: contentColor,
+                  title: Text(
+                    'Debug Details',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: contentColor,
+                    ),
+                  ),
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: SelectableText(
+                        'Exception:\n${details.error}\n\nStack Trace:\n${details.stackTrace}',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontFamily: 'monospace',
+                          color: contentColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),

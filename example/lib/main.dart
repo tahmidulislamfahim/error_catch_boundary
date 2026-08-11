@@ -10,14 +10,20 @@ class ErrorBoundaryExampleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Error Boundary Demo',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.indigo,
+    return GlobalErrorBoundaryConfig(
+      showDebugDetails: true,
+      onError: (details) {
+        debugPrint('[GlobalErrorBoundaryConfig Logger] Caught: ${details.error}');
+      },
+      child: MaterialApp(
+        title: 'Flutter Error Boundary Demo v1.1.0',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          colorSchemeSeed: Colors.indigo,
+        ),
+        home: const DemoHomeScreen(),
       ),
-      home: const DemoHomeScreen(),
     );
   }
 }
@@ -30,23 +36,46 @@ class DemoHomeScreen extends StatefulWidget {
 }
 
 class _DemoHomeScreenState extends State<DemoHomeScreen> {
-  bool _simulateCardError = false;
+  bool _simulateCard2Error = false;
+  bool _simulateAutoRetryError = false;
+  bool _simulateIgnoredError = false;
+
+  final ErrorBoundaryController _globalController = ErrorBoundaryController();
   final List<String> _logs = [];
 
   void _logError(FlutterErrorBoundaryDetails details) {
     setState(() {
       _logs.insert(0,
-          '[${DateTime.now().toString().split('.').first}] Intercepted error: ${details.error}');
+          '[${DateTime.now().toString().split('.').first}] Intercepted: ${details.error}');
     });
+  }
+
+  @override
+  void dispose() {
+    _globalController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Error Boundary Demo'),
+        title: const Text('Error Boundary v1.1.0 Demo'),
         centerTitle: true,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.restore),
+            tooltip: 'Reset All Boundaries (Controller)',
+            onPressed: () {
+              _globalController.reset();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Triggered reset via ErrorBoundaryController!'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.cleaning_services),
             tooltip: 'Clear Logs',
@@ -64,25 +93,49 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
               elevation: 2,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12)),
-              child: SwitchListTile(
-                title: const Text(
-                  'Simulate UI Build Failure',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Simulation Controls',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      title: const Text('Simulate Error in Card #2'),
+                      subtitle: const Text(
+                          'Catches error and displays DefaultErrorFallback with expandable Debug Details'),
+                      value: _simulateCard2Error,
+                      onChanged: (val) =>
+                          setState(() => _simulateCard2Error = val),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Simulate Auto-Retry Card Error'),
+                      subtitle: const Text(
+                          'Uses AutoRetryConfig (max 3 retries, 2s interval)'),
+                      value: _simulateAutoRetryError,
+                      onChanged: (val) =>
+                          setState(() => _simulateAutoRetryError = val),
+                    ),
+                    SwitchListTile(
+                      title: const Text('Simulate Bypassed Error (shouldCatch)'),
+                      subtitle: const Text(
+                          'Filter predicate returns false for FormatException, allowing standard Flutter erroring'),
+                      value: _simulateIgnoredError,
+                      onChanged: (val) =>
+                          setState(() => _simulateIgnoredError = val),
+                    ),
+                  ],
                 ),
-                subtitle: const Text(
-                    'Toggles item #2 to throw an unhandled exception inside build()'),
-                value: _simulateCardError,
-                onChanged: (val) {
-                  setState(() {
-                    _simulateCardError = val;
-                  });
-                },
               ),
             ),
             const SizedBox(height: 20),
 
             const Text(
-              'Dashboard Items (Isolated Error Boundaries):',
+              'Dashboard Cards (Isolated Boundaries):',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -92,26 +145,78 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                _buildDemoItem(
-                  id: 1,
-                  title: 'Analytics Overview',
-                  icon: Icons.analytics_outlined,
-                  color: Colors.blue.shade100,
-                  shouldThrow: false,
+                // Card 1: Standard
+                SizedBox(
+                  width: 340,
+                  child: ErrorBoundary(
+                    controller: _globalController,
+                    onError: _logError,
+                    child: const DemoCardContent(
+                      id: 1,
+                      title: 'Analytics Overview',
+                      icon: Icons.analytics_outlined,
+                      color: Color(0xFFE3F2FD),
+                      shouldThrow: false,
+                    ),
+                  ),
                 ),
-                _buildDemoItem(
-                  id: 2,
-                  title: 'Live Transactions',
-                  icon: Icons.receipt_long_outlined,
-                  color: Colors.amber.shade100,
-                  shouldThrow: _simulateCardError,
+
+                // Card 2: Interactive with Controller & Debug Inspector
+                SizedBox(
+                  width: 340,
+                  child: ErrorBoundary(
+                    controller: _globalController,
+                    onError: _logError,
+                    child: DemoCardContent(
+                      id: 2,
+                      title: 'Live Transactions',
+                      icon: Icons.receipt_long_outlined,
+                      color: const Color(0xFFFFF8E1),
+                      shouldThrow: _simulateCard2Error,
+                    ),
+                  ),
                 ),
-                _buildDemoItem(
-                  id: 3,
-                  title: 'User Profile & Settings',
-                  icon: Icons.person_outline,
-                  color: Colors.green.shade100,
-                  shouldThrow: false,
+
+                // Card 3: Auto-Retry Config
+                SizedBox(
+                  width: 340,
+                  child: ErrorBoundary(
+                    controller: _globalController,
+                    onError: _logError,
+                    autoRetryConfig: const AutoRetryConfig(
+                      maxRetries: 3,
+                      retryInterval: Duration(seconds: 2),
+                    ),
+                    child: DemoCardContent(
+                      id: 3,
+                      title: 'Auto-Healing Component',
+                      icon: Icons.autorenew,
+                      color: const Color(0xFFE8F5E9),
+                      shouldThrow: _simulateAutoRetryError,
+                    ),
+                  ),
+                ),
+
+                // Card 4: Filtered error
+                SizedBox(
+                  width: 340,
+                  child: ErrorBoundary(
+                    controller: _globalController,
+                    onError: _logError,
+                    shouldCatch: (details) {
+                      // Filter out FormatException
+                      return details.error is! FormatException;
+                    },
+                    child: DemoCardContent(
+                      id: 4,
+                      title: 'Filtered Predicate Card',
+                      icon: Icons.filter_alt_outlined,
+                      color: const Color(0xFFF3E5F5),
+                      shouldThrow: _simulateIgnoredError,
+                      customException:
+                          const FormatException('Bypassed FormatException!'),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -125,7 +230,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
 
             // Log Console
             Container(
-              height: 150,
+              height: 160,
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -161,28 +266,6 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
       ),
     );
   }
-
-  Widget _buildDemoItem({
-    required int id,
-    required String title,
-    required IconData icon,
-    required Color color,
-    required bool shouldThrow,
-  }) {
-    return SizedBox(
-      width: 320,
-      child: ErrorBoundary(
-        onError: _logError,
-        child: DemoCardContent(
-          id: id,
-          title: title,
-          icon: icon,
-          color: color,
-          shouldThrow: shouldThrow,
-        ),
-      ),
-    );
-  }
 }
 
 class DemoCardContent extends StatelessWidget {
@@ -191,6 +274,7 @@ class DemoCardContent extends StatelessWidget {
   final IconData icon;
   final Color color;
   final bool shouldThrow;
+  final Object? customException;
 
   const DemoCardContent({
     super.key,
@@ -199,12 +283,14 @@ class DemoCardContent extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.shouldThrow,
+    this.customException,
   });
 
   @override
   Widget build(BuildContext context) {
     if (shouldThrow) {
-      throw Exception('Uncaught render failure in Item #$id ($title)');
+      throw customException ??
+          Exception('Uncaught render failure in Item #$id ($title)');
     }
 
     return Container(

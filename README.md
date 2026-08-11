@@ -3,16 +3,20 @@
 [![pub package](https://img.shields.io/pub/v/error_catch_boundary.svg)](https://pub.dev/packages/error_catch_boundary)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A React-inspired error boundary wrapper for Flutter that catches subtree `build()` errors locally, prevents full-screen red error boxes or blank app screens, and displays a localized fallback UI with optional self-healing retry logic.
+A React-inspired error boundary wrapper for Flutter that catches subtree `build()` errors locally, prevents full-screen red error boxes or blank app screens, and displays a localized fallback UI with optional self-healing retry logic, programmatic controllers, global configs, auto-retries, and debug stack trace inspection.
 
 ---
 
 ## 🌟 Key Features
 
-- 🛡️ **Localized UI Fallback:** Prevents a single failing widget (e.g., inside a feed or grid) from crashing the rest of the application UI.
-- 🔄 **Self-Healing / Retry Support:** Provides a `reset()` callback so users can tap "Retry" to attempt rebuilding the failed subtree without restarting the app.
-- 📊 **Automated Error Logging:** Passes caught exceptions, stack traces, and details directly to logging services like **Sentry**, **Firebase Crashlytics**, or custom loggers.
-- 🎨 **Custom Fallback Builder:** Supply your own fallback UI or use the clean built-in `DefaultErrorFallback`.
+- 🛡️ **Localized UI Fallback:** Prevents a single failing widget from crashing the rest of the application UI.
+- 🔄 **Self-Healing / Retry Support:** Provides a `reset()` callback so users can tap "Retry" to attempt rebuilding the failed subtree.
+- 🎛️ **Programmatic Controller:** Reset error boundaries from external logic via `ErrorBoundaryController`.
+- 🌐 **Global Configuration:** Wrap your app with `GlobalErrorBoundaryConfig` to supply app-wide logging, fallback UIs, and filters.
+- ⏱️ **Automated Retries:** Self-heal transient errors automatically using `AutoRetryConfig` with exponential backoff support.
+- 🎯 **Selective Error Filtering:** Pass a `shouldCatch` predicate to catch specific errors while letting others propagate up.
+- 🐛 **Debug Inspector:** View expandable exception stack traces directly in the fallback UI during debug mode.
+- 🎨 **Smooth Transitions:** Animated state changes between child and error UI via `AnimatedSwitcher`.
 - ⚡ **Zero External Dependencies:** Pure Flutter implementation utilizing native `ErrorWidget` interceptors.
 
 ---
@@ -23,7 +27,7 @@ Add `error_catch_boundary` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  error_catch_boundary: ^1.0.0
+  error_catch_boundary: ^1.1.0
 ```
 
 Import the package in your Dart code:
@@ -36,21 +40,77 @@ import 'package:error_catch_boundary/error_catch_boundary.dart';
 
 ## 💻 Usage Examples
 
-### 1. Basic Usage (Default Fallback UI)
+### 1. Global App Configuration (`GlobalErrorBoundaryConfig`)
 
-Wrap any widget that might throw an error during build:
+Set app-wide defaults for Sentry/Crashlytics logging and debug details:
 
 ```dart
-ErrorBoundary(
-  child: MyFeedItemWidget(item: item),
+GlobalErrorBoundaryConfig(
+  onError: (details) {
+    Sentry.captureException(details.error, stackTrace: details.stackTrace);
+  },
+  showDebugDetails: kDebugMode,
+  child: MaterialApp(
+    home: const HomeScreen(),
+  ),
 )
 ```
 
-If `MyFeedItemWidget` throws an exception, only that feed item will display a warning card with a **Retry** button, while the rest of your app continues operating smoothly.
+---
+
+### 2. Programmatic Control (`ErrorBoundaryController`)
+
+Trigger resets across one or multiple boundaries from an AppBar button or refresh handler:
+
+```dart
+final controller = ErrorBoundaryController();
+
+// Inside your UI
+ErrorBoundary(
+  controller: controller,
+  child: MyFeedWidget(),
+)
+
+// Reset programmatically
+controller.reset();
+```
 
 ---
 
-### 2. Custom Fallback UI
+### 3. Automated Retry Policy (`AutoRetryConfig`)
+
+Automatically attempt recovery up to 3 times with 2-second intervals:
+
+```dart
+ErrorBoundary(
+  autoRetryConfig: const AutoRetryConfig(
+    maxRetries: 3,
+    retryInterval: Duration(seconds: 2),
+    enableExponentialBackoff: true,
+  ),
+  child: MyAsyncDataCard(),
+)
+```
+
+---
+
+### 4. Selective Error Filtering (`shouldCatch`)
+
+Catch UI build failures while letting severe network or auth exceptions bubble up:
+
+```dart
+ErrorBoundary(
+  shouldCatch: (details) {
+    // Only catch UI FormatExceptions, let UnauthenticatedException bubble up
+    return details.error is! UnauthenticatedException;
+  },
+  child: MyProtectedWidget(),
+)
+```
+
+---
+
+### 5. Custom Fallback UI
 
 Provide a `fallbackBuilder` to display custom error UI tailored to your design system:
 
@@ -73,32 +133,6 @@ ErrorBoundary(
     );
   },
   child: MyComplexCard(),
-)
-```
-
----
-
-### 3. Automatic Error Logging (Sentry / Crashlytics)
-
-Use the `onError` callback to log caught errors to remote telemetry services:
-
-```dart
-ErrorBoundary(
-  onError: (details) {
-    // Send stack trace and exception to Sentry
-    Sentry.captureException(
-      details.error,
-      stackTrace: details.stackTrace,
-    );
-
-    // Or report to Firebase Crashlytics
-    // FirebaseCrashlytics.instance.recordError(
-    //   details.error,
-    //   details.stackTrace,
-    //   reason: 'Caught by ErrorBoundary',
-    // );
-  },
-  child: ProductDetailsWidget(),
 )
 ```
 
