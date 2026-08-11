@@ -65,7 +65,8 @@ class DefaultErrorFallback extends StatelessWidget {
                 backgroundColor: colorScheme.error,
                 foregroundColor: colorScheme.onError,
                 elevation: 0,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),

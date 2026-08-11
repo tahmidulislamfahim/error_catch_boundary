@@ -4,7 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:example/main.dart';
 
 void main() {
-  testWidgets('Example app launches, handles simulated UI build error, logs it, and recovers', (WidgetTester tester) async {
+  testWidgets(
+      'Example app launches, handles simulated UI build error, logs it, and recovers',
+      (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
     FlutterError.onError = (details) {
       // Suppress console error logging during expected test failure
@@ -33,10 +35,14 @@ void main() {
 
       // 5. Verify Item #2 crashed safely and displays DefaultErrorFallback with retry button
       expect(find.byType(DefaultErrorFallback), findsOneWidget);
-      expect(find.text('Something went wrong in this section.'), findsOneWidget);
+      expect(
+          find.text('Something went wrong in this section.'), findsOneWidget);
 
       // 6. Verify error logger stream updated with intercepted exception
-      expect(find.textContaining('Intercepted error: Exception: Uncaught render failure in Item #2'), findsOneWidget);
+      expect(
+          find.textContaining(
+              'Intercepted error: Exception: Uncaught render failure in Item #2'),
+          findsOneWidget);
 
       // 7. Toggle switch back to healthy state
       await tester.tap(find.byType(SwitchListTile));

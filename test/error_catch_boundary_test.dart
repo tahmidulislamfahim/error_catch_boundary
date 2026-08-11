@@ -16,7 +16,8 @@ class BuggyWidget extends StatelessWidget {
 }
 
 void main() {
-  testWidgets('renders child widget normally when no error occurs', (WidgetTester tester) async {
+  testWidgets('renders child widget normally when no error occurs',
+      (WidgetTester tester) async {
     await tester.pumpWidget(
       const MaterialApp(
         home: ErrorBoundary(
@@ -29,7 +30,9 @@ void main() {
     expect(find.byType(DefaultErrorFallback), findsNothing);
   });
 
-  testWidgets('catches build error and displays DefaultErrorFallback with retry button', (WidgetTester tester) async {
+  testWidgets(
+      'catches build error and displays DefaultErrorFallback with retry button',
+      (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
     FlutterError.onError = (FlutterErrorDetails details) {
       // Suppress console error output for expected test error
@@ -51,7 +54,8 @@ void main() {
     FlutterError.onError = originalOnError;
   });
 
-  testWidgets('renders custom fallbackBuilder when error occurs', (WidgetTester tester) async {
+  testWidgets('renders custom fallbackBuilder when error occurs',
+      (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
     FlutterError.onError = (details) {};
 
@@ -67,12 +71,16 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.textContaining('Custom Fallback UI: Exception: Test build failure inside BuggyWidget'), findsOneWidget);
+    expect(
+        find.textContaining(
+            'Custom Fallback UI: Exception: Test build failure inside BuggyWidget'),
+        findsOneWidget);
 
     FlutterError.onError = originalOnError;
   });
 
-  testWidgets('invokes onError logging callback when an error is caught', (WidgetTester tester) async {
+  testWidgets('invokes onError logging callback when an error is caught',
+      (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
     FlutterError.onError = (details) {};
 
@@ -91,13 +99,15 @@ void main() {
     await tester.pump();
 
     expect(caughtDetails, isNotNull);
-    expect(caughtDetails!.error.toString(), contains('Test build failure inside BuggyWidget'));
+    expect(caughtDetails!.error.toString(),
+        contains('Test build failure inside BuggyWidget'));
     expect(caughtDetails!.stackTrace, isNotNull);
 
     FlutterError.onError = originalOnError;
   });
 
-  testWidgets('allows self-healing retry when reset callback is triggered', (WidgetTester tester) async {
+  testWidgets('allows self-healing retry when reset callback is triggered',
+      (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
     FlutterError.onError = (details) {};
 
@@ -138,7 +148,9 @@ void main() {
     FlutterError.onError = originalOnError;
   });
 
-  testWidgets('isolates error so neighboring widgets continue operating normally', (WidgetTester tester) async {
+  testWidgets(
+      'isolates error so neighboring widgets continue operating normally',
+      (WidgetTester tester) async {
     final originalOnError = FlutterError.onError;
     FlutterError.onError = (details) {};
 

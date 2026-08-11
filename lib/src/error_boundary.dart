@@ -74,7 +74,8 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     }
   }
 
-  Widget _buildFallback(BuildContext context, FlutterErrorBoundaryDetails details) {
+  Widget _buildFallback(
+      BuildContext context, FlutterErrorBoundaryDetails details) {
     if (widget.fallbackBuilder != null) {
       return widget.fallbackBuilder!(context, details, _reset);
     }
@@ -131,7 +132,8 @@ class ErrorWidgetBuilderInterceptor extends StatelessWidget {
 /// for the duration of the rebuild pass and always restores the original builder.
 class ErrorWidgetBuilderInterceptorElement extends StatelessElement {
   /// Creates an element for the given [ErrorWidgetBuilderInterceptor].
-  ErrorWidgetBuilderInterceptorElement(ErrorWidgetBuilderInterceptor super.widget);
+  ErrorWidgetBuilderInterceptorElement(
+      ErrorWidgetBuilderInterceptor super.widget);
 
   @override
   void performRebuild() {

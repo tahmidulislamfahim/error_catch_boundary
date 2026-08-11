@@ -35,7 +35,8 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
 
   void _logError(FlutterErrorBoundaryDetails details) {
     setState(() {
-      _logs.insert(0, '[${DateTime.now().toString().split('.').first}] Intercepted error: ${details.error}');
+      _logs.insert(0,
+          '[${DateTime.now().toString().split('.').first}] Intercepted error: ${details.error}');
     });
   }
 
@@ -61,13 +62,15 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
             // Controls Card
             Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               child: SwitchListTile(
                 title: const Text(
                   'Simulate UI Build Failure',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
-                subtitle: const Text('Toggles item #2 to throw an unhandled exception inside build()'),
+                subtitle: const Text(
+                    'Toggles item #2 to throw an unhandled exception inside build()'),
                 value: _simulateCardError,
                 onChanged: (val) {
                   setState(() {
