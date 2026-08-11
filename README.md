@@ -27,7 +27,7 @@ Add `error_catch_boundary` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  error_catch_boundary: ^1.1.0
+  error_catch_boundary: ^1.1.1
 ```
 
 Import the package in your Dart code:
