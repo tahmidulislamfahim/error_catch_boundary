@@ -28,6 +28,9 @@ class ErrorBoundary extends StatefulWidget {
   /// The widget tree protected by this error boundary.
   final Widget child;
 
+  /// Optional name or identifier tag for this error boundary (useful for telemetry/logging).
+  final String? name;
+
   /// Optional builder to supply a custom fallback UI when an error occurs.
   /// If null, [GlobalErrorBoundaryConfig.fallbackBuilder] or [DefaultErrorFallback] will be used.
   final ErrorBoundaryFallbackBuilder? fallbackBuilder;
@@ -47,6 +50,13 @@ class ErrorBoundary extends StatefulWidget {
   /// Optional configuration for automated retry attempts when an error occurs.
   final AutoRetryConfig? autoRetryConfig;
 
+  /// Optional pre-retry asynchronous callback executed before resetting the error boundary.
+  /// When active, a loading indicator is displayed in [DefaultErrorFallback].
+  final FutureOr<void> Function()? onRetry;
+
+  /// Optional cooldown duration to rate-limit manual retry button taps.
+  final Duration? minRetryCooldown;
+
   /// Duration of the smooth transition between active child and fallback states.
   final Duration transitionDuration;
 
@@ -54,11 +64,14 @@ class ErrorBoundary extends StatefulWidget {
   const ErrorBoundary({
     super.key,
     required this.child,
+    this.name,
     this.fallbackBuilder,
     this.onError,
     this.controller,
     this.shouldCatch,
     this.autoRetryConfig,
+    this.onRetry,
+    this.minRetryCooldown,
     this.transitionDuration = const Duration(milliseconds: 300),
   });
 
@@ -69,7 +82,11 @@ class ErrorBoundary extends StatefulWidget {
 class _ErrorBoundaryState extends State<ErrorBoundary> {
   FlutterErrorBoundaryDetails? _errorDetails;
   int _retryCount = 0;
+  int _resetCounter = 0;
   Timer? _autoRetryTimer;
+  Timer? _cooldownTimer;
+  bool _isRetrying = false;
+  bool _isCoolingDown = false;
 
   @override
   void initState() {
@@ -90,6 +107,7 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
   void dispose() {
     widget.controller?.removeListener(_reset);
     _autoRetryTimer?.cancel();
+    _cooldownTimer?.cancel();
     super.dispose();
   }
 
@@ -98,9 +116,64 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     _autoRetryTimer?.cancel();
     if (mounted) {
       setState(() {
+        _resetCounter++;
         _errorDetails = null;
       });
     }
+  }
+
+  Future<void> _handleManualRetry(GlobalErrorBoundaryConfig? globalConfig) async {
+    if (_isRetrying || _isCoolingDown) {
+      return;
+    }
+
+    final cooldown = widget.minRetryCooldown ?? globalConfig?.minRetryCooldown;
+    if (cooldown != null && cooldown > Duration.zero) {
+      _cooldownTimer?.cancel();
+      if (mounted) {
+        setState(() {
+          _isCoolingDown = true;
+        });
+      }
+      _cooldownTimer = Timer(cooldown, () {
+        if (mounted) {
+          setState(() {
+            _isCoolingDown = false;
+          });
+        }
+      });
+    }
+
+    final retryHook = widget.onRetry ?? globalConfig?.onRetry;
+    if (retryHook != null) {
+      if (mounted) {
+        setState(() {
+          _isRetrying = true;
+        });
+      }
+      try {
+        await retryHook();
+      } catch (e, stack) {
+        if (mounted) {
+          final errorDetails = FlutterErrorBoundaryDetails(
+            error: e,
+            stackTrace: stack,
+            name: widget.name,
+          );
+          widget.onError?.call(errorDetails);
+          globalConfig?.onError?.call(errorDetails);
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isRetrying = false;
+          });
+        }
+      }
+    }
+
+    _retryCount = 0; // Manual retry resets auto-retry count
+    _reset();
   }
 
   FlutterErrorBoundaryDetails _createDetails(FlutterErrorDetails details) {
@@ -108,6 +181,7 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
       error: details.exception,
       stackTrace: details.stack ?? StackTrace.current,
       informationCollector: details.informationCollector,
+      name: widget.name,
     );
   }
 
@@ -155,15 +229,14 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     final builder = widget.fallbackBuilder ?? globalConfig?.fallbackBuilder;
 
     if (builder != null) {
-      return builder(context, details, _reset);
+      return builder(context, details, () => _handleManualRetry(globalConfig));
     }
     return DefaultErrorFallback(
       details: details,
-      onRetry: () {
-        _retryCount = 0; // Manual retry resets auto-retry count
-        _reset();
-      },
+      onRetry: () => _handleManualRetry(globalConfig),
       showDebugDetails: globalConfig?.showDebugDetails,
+      isRetrying: _isRetrying,
+      isCoolingDown: _isCoolingDown,
     );
   }
 
@@ -174,17 +247,26 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     final Widget currentContent;
     if (_errorDetails != null) {
       currentContent = KeyedSubtree(
-        key: ValueKey('fallback_${_errorDetails.hashCode}'),
+        key: const ValueKey('error_boundary_fallback'),
         child: _buildFallback(context, _errorDetails!),
       );
     } else {
       currentContent = KeyedSubtree(
-        key: const ValueKey('child_content'),
+        key: ValueKey('error_boundary_child_$_resetCounter'),
         child: ErrorWidgetBuilderInterceptor(
           onError: (details) {
             final boundaryDetails = _createDetails(details);
+            final filter = widget.shouldCatch ?? globalConfig?.shouldCatch;
+            if (filter != null && !filter(boundaryDetails)) {
+              return ErrorWidget.withDetails(
+                message: details.exception.toString(),
+                error: details.exception is FlutterError
+                    ? details.exception as FlutterError
+                    : null,
+              );
+            }
             _handleError(boundaryDetails, globalConfig);
-            return _buildFallback(context, boundaryDetails);
+            return const SizedBox.shrink();
           },
           child: widget.child,
         ),

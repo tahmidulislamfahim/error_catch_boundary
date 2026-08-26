@@ -15,12 +15,20 @@ class DefaultErrorFallback extends StatelessWidget {
   /// Defaults to [kDebugMode] if null.
   final bool? showDebugDetails;
 
+  /// Whether an asynchronous retry operation is currently executing.
+  final bool isRetrying;
+
+  /// Whether the retry button is temporarily disabled due to cooldown rate-limiting.
+  final bool isCoolingDown;
+
   /// Creates a [DefaultErrorFallback] instance.
   const DefaultErrorFallback({
     super.key,
     required this.details,
     required this.onRetry,
     this.showDebugDetails,
+    this.isRetrying = false,
+    this.isCoolingDown = false,
   });
 
   @override
@@ -28,6 +36,7 @@ class DefaultErrorFallback extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDebugModeEnabled = showDebugDetails ?? kDebugMode;
+    final isActionDisabled = isRetrying || isCoolingDown;
 
     final backgroundColor = colorScheme.errorContainer;
     final contentColor = colorScheme.onErrorContainer;
@@ -65,9 +74,18 @@ class DefaultErrorFallback extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh, size: 18),
-              label: const Text('Retry'),
+              onPressed: isActionDisabled ? null : onRetry,
+              icon: isRetrying
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: colorScheme.onError,
+                      ),
+                    )
+                  : const Icon(Icons.refresh, size: 18),
+              label: Text(isRetrying ? 'Retrying...' : 'Retry'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: colorScheme.error,
                 foregroundColor: colorScheme.onError,
@@ -81,39 +99,42 @@ class DefaultErrorFallback extends StatelessWidget {
             ),
             if (isDebugModeEnabled) ...[
               const SizedBox(height: 12),
-              Theme(
-                data: theme.copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  childrenPadding: const EdgeInsets.only(top: 8),
-                  iconColor: contentColor,
-                  collapsedIconColor: contentColor,
-                  title: Text(
-                    'Debug Details',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: contentColor,
-                    ),
-                  ),
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
+              Material(
+                type: MaterialType.transparency,
+                child: Theme(
+                  data: theme.copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: const EdgeInsets.only(top: 8),
+                    iconColor: contentColor,
+                    collapsedIconColor: contentColor,
+                    title: Text(
+                      'Debug Details',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: contentColor,
                       ),
-                      child: SelectableText(
-                        'Exception:\n${details.error}\n\nStack Trace:\n${details.stackTrace}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontFamily: 'monospace',
-                          color: contentColor,
+                    ),
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: SelectableText(
+                          'Exception:\n${details.error}\n\nStack Trace:\n${details.stackTrace}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            color: contentColor,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -123,3 +144,5 @@ class DefaultErrorFallback extends StatelessWidget {
     );
   }
 }
+
+

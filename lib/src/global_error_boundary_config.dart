@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'error_boundary.dart';
 import 'error_details.dart';
@@ -16,6 +17,12 @@ class GlobalErrorBoundaryConfig extends InheritedWidget {
   /// Default setting controlling whether stack traces are expanded in [DefaultErrorFallback].
   final bool? showDebugDetails;
 
+  /// Default pre-retry asynchronous callback executed before resetting the error boundary.
+  final FutureOr<void> Function()? onRetry;
+
+  /// Default cooldown duration to rate-limit manual retry button taps.
+  final Duration? minRetryCooldown;
+
   /// Creates a [GlobalErrorBoundaryConfig] widget.
   const GlobalErrorBoundaryConfig({
     super.key,
@@ -24,6 +31,8 @@ class GlobalErrorBoundaryConfig extends InheritedWidget {
     this.onError,
     this.shouldCatch,
     this.showDebugDetails,
+    this.onRetry,
+    this.minRetryCooldown,
   });
 
   /// Obtains the closest [GlobalErrorBoundaryConfig] ancestor in the given [BuildContext].
@@ -36,6 +45,9 @@ class GlobalErrorBoundaryConfig extends InheritedWidget {
     return fallbackBuilder != oldWidget.fallbackBuilder ||
         onError != oldWidget.onError ||
         shouldCatch != oldWidget.shouldCatch ||
-        showDebugDetails != oldWidget.showDebugDetails;
+        showDebugDetails != oldWidget.showDebugDetails ||
+        onRetry != oldWidget.onRetry ||
+        minRetryCooldown != oldWidget.minRetryCooldown;
   }
 }
+

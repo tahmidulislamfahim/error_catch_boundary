@@ -1,4 +1,12 @@
+## 1.2.0
+
+* **Boundary Tagging & Names (`name`)**: Added `name` property to `ErrorBoundary` and `FlutterErrorBoundaryDetails` for enriched error telemetry and logging in Sentry, Firebase Crashlytics, and Datadog.
+* **Asynchronous Pre-Retry Hook (`onRetry`)**: Added `onRetry` support to `ErrorBoundary` and `GlobalErrorBoundaryConfig` with built-in loading indicator on the fallback retry button while async operations (e.g. re-fetching data, refreshing state providers) complete.
+* **Retry Cooldown & Rate-Limiting (`minRetryCooldown`)**: Added `minRetryCooldown` parameter to throttle and prevent rapid spamming of manual retry attempts.
+* **Subtree Remount on Reset**: Enhanced `_ErrorBoundaryState` with automated subtree remount keying on resets to guarantee fresh rebuilds.
+
 ## 1.1.1
+
 
 * Updated `LICENSE` to canonical SPDX MIT License formatting for pub.dev recognition.
 * **`ErrorBoundaryController`**: Programmatic control to reset attached error boundaries from outside the widget tree.
