@@ -1,6 +1,6 @@
 name: error_catch_boundary
 description: "A React-inspired error boundary package for Flutter that catches subtree build errors, prevents UI crashes, logs exceptions, and displays localized fallback UI."
-version: 1.1.1
+version: 1.2.0
 repository: https://github.com/tahmidulislamfahim/error_catch_boundary
 homepage: https://github.com/tahmidulislamfahim/error_catch_boundary
 topics:
@@ -9,6 +9,10 @@ topics:
   - ui
   - fallback
   - robustness
+
+screenshots:
+  - description: 'error_catch_boundary logo icon'
+    path: doc/images/logo_icon.jpg
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
