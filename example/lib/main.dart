@@ -16,7 +16,7 @@ class ErrorBoundaryExampleApp extends StatelessWidget {
         debugPrint('[GlobalErrorBoundaryConfig Logger] Caught: ${details.error}');
       },
       child: MaterialApp(
-        title: 'Flutter Error Boundary Demo v1.1.0',
+        title: 'Flutter Error Boundary Demo v1.3.0',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           useMaterial3: true,
@@ -39,6 +39,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
   bool _simulateCard2Error = false;
   bool _simulateAutoRetryError = false;
   bool _simulateIgnoredError = false;
+  bool _simulateAsyncError = false;
 
   final ErrorBoundaryController _globalController = ErrorBoundaryController();
   final List<String> _logs = [];
@@ -46,7 +47,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
   void _logError(FlutterErrorBoundaryDetails details) {
     setState(() {
       _logs.insert(0,
-          '[${DateTime.now().toString().split('.').first}] Intercepted: ${details.error}');
+          '[${DateTime.now().toString().split('.').first}] Intercepted (${details.name ?? "unnamed"}): ${details.error}');
     });
   }
 
@@ -60,7 +61,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Error Boundary v1.1.0 Demo'),
+        title: const Text('Error Boundary v1.3.0 Demo'),
         centerTitle: true,
         actions: [
           IconButton(
@@ -128,6 +129,14 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
                       onChanged: (val) =>
                           setState(() => _simulateIgnoredError = val),
                     ),
+                    SwitchListTile(
+                      title: const Text('Simulate Async & Zone Interception (v1.3.0)'),
+                      subtitle: const Text(
+                          'Uses ErrorBoundary.async to intercept microtask/zone errors outside build()'),
+                      value: _simulateAsyncError,
+                      onChanged: (val) =>
+                          setState(() => _simulateAsyncError = val),
+                    ),
                   ],
                 ),
               ),
@@ -149,6 +158,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
                 SizedBox(
                   width: 340,
                   child: ErrorBoundary(
+                    name: 'Card1_Analytics',
                     controller: _globalController,
                     onError: _logError,
                     child: const DemoCardContent(
@@ -165,6 +175,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
                 SizedBox(
                   width: 340,
                   child: ErrorBoundary(
+                    name: 'Card2_Transactions',
                     controller: _globalController,
                     onError: _logError,
                     child: DemoCardContent(
@@ -181,6 +192,7 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
                 SizedBox(
                   width: 340,
                   child: ErrorBoundary(
+                    name: 'Card3_AutoHealing',
                     controller: _globalController,
                     onError: _logError,
                     autoRetryConfig: const AutoRetryConfig(
@@ -201,10 +213,10 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
                 SizedBox(
                   width: 340,
                   child: ErrorBoundary(
+                    name: 'Card4_Filtered',
                     controller: _globalController,
                     onError: _logError,
                     shouldCatch: (details) {
-                      // Filter out FormatException
                       return details.error is! FormatException;
                     },
                     child: DemoCardContent(
@@ -215,6 +227,35 @@ class _DemoHomeScreenState extends State<DemoHomeScreen> {
                       shouldThrow: _simulateIgnoredError,
                       customException:
                           const FormatException('Bypassed FormatException!'),
+                    ),
+                  ),
+                ),
+
+                // Card 5: Async & Custom Scale Transition (v1.3.0)
+                SizedBox(
+                  width: 340,
+                  child: ErrorBoundary.async(
+                    name: 'Card5_AsyncZone',
+                    controller: _globalController,
+                    onError: _logError,
+                    transitionBuilder: (child, animation) {
+                      return ScaleTransition(scale: animation, child: child);
+                    },
+                    child: Builder(
+                      builder: (context) {
+                        if (_simulateAsyncError) {
+                          Future.microtask(() {
+                            throw Exception('Async microtask failure in Card #5');
+                          });
+                        }
+                        return const DemoCardContent(
+                          id: 5,
+                          title: 'Async & Zone Interception (Scale Transition)',
+                          icon: Icons.bolt,
+                          color: Color(0xFFE0F7FA),
+                          shouldThrow: false,
+                        );
+                      },
                     ),
                   ),
                 ),

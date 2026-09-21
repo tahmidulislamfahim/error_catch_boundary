@@ -23,7 +23,7 @@ typedef ErrorBoundaryLogCallback = void Function(
 /// [ErrorBoundary] catches render-tree and `build()` errors in its subtree,
 /// prevents the entire app UI from crashing, logs errors via [onError], and
 /// displays a localized fallback UI with optional self-healing retry, programmatic control,
-/// error predicate filtering, and auto-retry capabilities.
+/// error predicate filtering, auto-retry capabilities, and async zone error interception.
 class ErrorBoundary extends StatefulWidget {
   /// The widget tree protected by this error boundary.
   final Widget child;
@@ -60,6 +60,12 @@ class ErrorBoundary extends StatefulWidget {
   /// Duration of the smooth transition between active child and fallback states.
   final Duration transitionDuration;
 
+  /// Custom transition builder used when animating between child content and fallback UI.
+  final AnimatedSwitcherTransitionBuilder? transitionBuilder;
+
+  /// Whether to catch unhandled asynchronous errors thrown inside the child zone.
+  final bool catchAsync;
+
   /// Creates an [ErrorBoundary] widget.
   const ErrorBoundary({
     super.key,
@@ -73,7 +79,39 @@ class ErrorBoundary extends StatefulWidget {
     this.onRetry,
     this.minRetryCooldown,
     this.transitionDuration = const Duration(milliseconds: 300),
+    this.transitionBuilder,
+    this.catchAsync = false,
   });
+
+  /// Creates an [ErrorBoundary] widget with zone-based asynchronous error interception enabled.
+  const ErrorBoundary.async({
+    Key? key,
+    required Widget child,
+    String? name,
+    ErrorBoundaryFallbackBuilder? fallbackBuilder,
+    ErrorBoundaryLogCallback? onError,
+    ErrorBoundaryController? controller,
+    bool Function(FlutterErrorBoundaryDetails details)? shouldCatch,
+    AutoRetryConfig? autoRetryConfig,
+    FutureOr<void> Function()? onRetry,
+    Duration? minRetryCooldown,
+    Duration transitionDuration = const Duration(milliseconds: 300),
+    AnimatedSwitcherTransitionBuilder? transitionBuilder,
+  }) : this(
+          key: key,
+          child: child,
+          name: name,
+          fallbackBuilder: fallbackBuilder,
+          onError: onError,
+          controller: controller,
+          shouldCatch: shouldCatch,
+          autoRetryConfig: autoRetryConfig,
+          onRetry: onRetry,
+          minRetryCooldown: minRetryCooldown,
+          transitionDuration: transitionDuration,
+          transitionBuilder: transitionBuilder,
+          catchAsync: true,
+        );
 
   @override
   State<ErrorBoundary> createState() => _ErrorBoundaryState();
@@ -251,32 +289,93 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
         child: _buildFallback(context, _errorDetails!),
       );
     } else {
+      Widget childTree = ErrorWidgetBuilderInterceptor(
+        onError: (details) {
+          final boundaryDetails = _createDetails(details);
+          final filter = widget.shouldCatch ?? globalConfig?.shouldCatch;
+          if (filter != null && !filter(boundaryDetails)) {
+            return ErrorWidget.withDetails(
+              message: details.exception.toString(),
+              error: details.exception is FlutterError
+                  ? details.exception as FlutterError
+                  : null,
+            );
+          }
+          _handleError(boundaryDetails, globalConfig);
+          return const SizedBox.shrink();
+        },
+        child: widget.child,
+      );
+
+      if (widget.catchAsync) {
+        childTree = AsyncZoneBoundary(
+          onError: (Object error, StackTrace stack) {
+            final boundaryDetails = FlutterErrorBoundaryDetails(
+              error: error,
+              stackTrace: stack,
+              name: widget.name,
+            );
+            _handleError(boundaryDetails, globalConfig);
+          },
+          child: childTree,
+        );
+      }
+
       currentContent = KeyedSubtree(
         key: ValueKey('error_boundary_child_$_resetCounter'),
-        child: ErrorWidgetBuilderInterceptor(
-          onError: (details) {
-            final boundaryDetails = _createDetails(details);
-            final filter = widget.shouldCatch ?? globalConfig?.shouldCatch;
-            if (filter != null && !filter(boundaryDetails)) {
-              return ErrorWidget.withDetails(
-                message: details.exception.toString(),
-                error: details.exception is FlutterError
-                    ? details.exception as FlutterError
-                    : null,
-              );
-            }
-            _handleError(boundaryDetails, globalConfig);
-            return const SizedBox.shrink();
-          },
-          child: widget.child,
-        ),
+        child: childTree,
       );
     }
 
+    final transition = widget.transitionBuilder ??
+        globalConfig?.transitionBuilder ??
+        AnimatedSwitcher.defaultTransitionBuilder;
+
     return AnimatedSwitcher(
       duration: widget.transitionDuration,
+      transitionBuilder: transition,
       child: currentContent,
     );
+  }
+}
+
+/// Helper widget to execute child widget building and callbacks within a custom Zone for async error handling.
+class AsyncZoneBoundary extends StatelessWidget {
+  /// The child widget tree being wrapped.
+  final Widget child;
+
+  /// Callback executed when an unhandled asynchronous error occurs inside the zone.
+  final void Function(Object error, StackTrace stack) onError;
+
+  /// Creates an [AsyncZoneBoundary].
+  const AsyncZoneBoundary({
+    super.key,
+    required this.child,
+    required this.onError,
+  });
+
+  @override
+  StatelessElement createElement() {
+    return AsyncZoneBoundaryElement(this);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return child;
+  }
+}
+
+/// Element for [AsyncZoneBoundary] that runs subtree rebuilds within a [runZonedGuarded] zone.
+class AsyncZoneBoundaryElement extends StatelessElement {
+  /// Creates an element for [AsyncZoneBoundary].
+  AsyncZoneBoundaryElement(AsyncZoneBoundary super.widget);
+
+  @override
+  void performRebuild() {
+    final zoneWidget = widget as AsyncZoneBoundary;
+    runZonedGuarded(() {
+      super.performRebuild();
+    }, zoneWidget.onError);
   }
 }
 

@@ -1,3 +1,8 @@
+## 1.3.0
+
+* **`ErrorBoundary.async` & Zone Error Interception**: Added `ErrorBoundary.async` constructor (`catchAsync: true`) utilizing `runZonedGuarded` to intercept unhandled asynchronous exceptions in Futures, event callbacks, and async `initState` calls within the subtree.
+* **Custom Transition Builders (`transitionBuilder`)**: Added `transitionBuilder` parameter to `ErrorBoundary` and `GlobalErrorBoundaryConfig` to support custom transition animations (`ScaleTransition`, `SlideTransition`, `FadeTransition`, etc.) between active child content and fallback UI.
+
 ## 1.2.0
 
 * **Boundary Tagging & Names (`name`)**: Added `name` property to `ErrorBoundary` and `FlutterErrorBoundaryDetails` for enriched error telemetry and logging in Sentry, Firebase Crashlytics, and Datadog.
@@ -6,7 +11,6 @@
 * **Subtree Remount on Reset**: Enhanced `_ErrorBoundaryState` with automated subtree remount keying on resets to guarantee fresh rebuilds.
 
 ## 1.1.1
-
 
 * Updated `LICENSE` to canonical SPDX MIT License formatting for pub.dev recognition.
 * **`ErrorBoundaryController`**: Programmatic control to reset attached error boundaries from outside the widget tree.

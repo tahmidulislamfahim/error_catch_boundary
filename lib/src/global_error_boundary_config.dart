@@ -23,6 +23,9 @@ class GlobalErrorBoundaryConfig extends InheritedWidget {
   /// Default cooldown duration to rate-limit manual retry button taps.
   final Duration? minRetryCooldown;
 
+  /// Default custom transition animation builder used when switching between child and fallback UIs.
+  final AnimatedSwitcherTransitionBuilder? transitionBuilder;
+
   /// Creates a [GlobalErrorBoundaryConfig] widget.
   const GlobalErrorBoundaryConfig({
     super.key,
@@ -33,6 +36,7 @@ class GlobalErrorBoundaryConfig extends InheritedWidget {
     this.showDebugDetails,
     this.onRetry,
     this.minRetryCooldown,
+    this.transitionBuilder,
   });
 
   /// Obtains the closest [GlobalErrorBoundaryConfig] ancestor in the given [BuildContext].
@@ -47,7 +51,7 @@ class GlobalErrorBoundaryConfig extends InheritedWidget {
         shouldCatch != oldWidget.shouldCatch ||
         showDebugDetails != oldWidget.showDebugDetails ||
         onRetry != oldWidget.onRetry ||
-        minRetryCooldown != oldWidget.minRetryCooldown;
+        minRetryCooldown != oldWidget.minRetryCooldown ||
+        transitionBuilder != oldWidget.transitionBuilder;
   }
 }
-

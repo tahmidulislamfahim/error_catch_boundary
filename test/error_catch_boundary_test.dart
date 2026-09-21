@@ -339,19 +339,14 @@ void main() {
 
     expect(find.byType(DefaultErrorFallback), findsOneWidget);
 
-    // Fast-forward time for auto-retry timer
     await tester.pump(const Duration(milliseconds: 150));
-    // Pump the rebuild frame triggered by _reset()
     await tester.pump();
-    // Pump to complete AnimatedSwitcher transition
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(buildCount, equals(2));
     expect(find.text('Success on build 2'), findsOneWidget);
     expect(find.byType(DefaultErrorFallback), findsNothing);
   });
-
-
 
   testWidgets('renders Debug Details in DefaultErrorFallback when showDebugDetails is true',
       (WidgetTester tester) async {
@@ -447,15 +442,12 @@ void main() {
     expect(find.byType(DefaultErrorFallback), findsOneWidget);
     expect(onRetryHookExecuted, isFalse);
 
-    // Tap retry button
     await tester.tap(find.text('Retry'));
     await tester.pump();
 
-    // Verify loading indicator is displayed during async execution
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('Retrying...'), findsOneWidget);
 
-    // Advance clock past the delay
     await tester.pump(const Duration(milliseconds: 60));
     await tester.pumpAndSettle();
 
@@ -500,26 +492,21 @@ void main() {
       expect(find.byType(DefaultErrorFallback), findsOneWidget);
       expect(retryAttempts, equals(0));
 
-      // Tap retry
       await tester.tap(find.text('Retry'));
       await tester.pump();
 
       expect(retryAttempts, equals(1));
 
-      // Tap again immediately while cooling down (button is disabled)
       await tester.tap(find.byType(ElevatedButton), warnIfMissed: false);
       await tester.pump();
 
-      // retryAttempts should still be 1 (ignored due to cooldown)
       expect(retryAttempts, equals(1));
 
-      // Advance past cooldown duration
       await tester.pump(const Duration(milliseconds: 250));
       await tester.pumpAndSettle();
 
       shouldFail = false;
 
-      // Tap again after cooldown
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
 
@@ -529,8 +516,71 @@ void main() {
       FlutterError.onError = originalOnError;
     }
   });
+
+  testWidgets('ErrorBoundary.async intercepts unhandled asynchronous errors in child zone',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    FlutterErrorBoundaryDetails? caughtDetails;
+
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ErrorBoundary.async(
+            onError: (details) {
+              caughtDetails = details;
+            },
+            child: Builder(
+              builder: (context) {
+                Future.microtask(() {
+                  throw Exception('Async microtask error inside zone');
+                });
+                return const Text('Async Child Content');
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    expect(caughtDetails, isNotNull);
+    expect(caughtDetails!.error.toString(),
+        contains('Async microtask error inside zone'));
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+  });
+
+  testWidgets('uses custom transitionBuilder for AnimatedSwitcher state transitions',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    bool customTransitionUsed = false;
+
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ErrorBoundary(
+            transitionBuilder: (child, animation) {
+              customTransitionUsed = true;
+              return ScaleTransition(scale: animation, child: child);
+            },
+            child: const BuggyWidget(shouldThrow: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    expect(customTransitionUsed, isTrue);
+    expect(find.byType(ScaleTransition), findsOneWidget);
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+  });
 }
-
-
-
-
