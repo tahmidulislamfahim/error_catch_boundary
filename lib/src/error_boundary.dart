@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'auto_retry_config.dart';
 import 'default_error_widget.dart';
 import 'error_boundary_controller.dart';
+import 'error_boundary_strings.dart';
 import 'error_details.dart';
 import 'global_error_boundary_config.dart';
 
@@ -22,8 +23,8 @@ typedef ErrorBoundaryLogCallback = void Function(
 ///
 /// [ErrorBoundary] catches render-tree and `build()` errors in its subtree,
 /// prevents the entire app UI from crashing, logs errors via [onError], and
-/// displays a localized fallback UI with optional self-healing retry, programmatic control,
-/// error predicate filtering, auto-retry capabilities, and async zone error interception.
+/// displays a customizable, localizable fallback UI with optional self-healing retry,
+/// programmatic control, error predicate filtering, auto-retry capabilities, and async zone error interception.
 class ErrorBoundary extends StatefulWidget {
   /// The widget tree protected by this error boundary.
   final Widget child;
@@ -39,7 +40,7 @@ class ErrorBoundary extends StatefulWidget {
   /// stack traces to monitoring services (e.g., Sentry, Firebase Crashlytics).
   final ErrorBoundaryLogCallback? onError;
 
-  /// Optional controller to programmatically trigger resets from outside the boundary.
+  /// Optional controller to programmatically control, observe, and trigger resets from outside the boundary.
   final ErrorBoundaryController? controller;
 
   /// Optional predicate callback to decide whether an error should be caught by this boundary.
@@ -63,8 +64,11 @@ class ErrorBoundary extends StatefulWidget {
   /// Custom transition builder used when animating between child content and fallback UI.
   final AnimatedSwitcherTransitionBuilder? transitionBuilder;
 
-  /// Whether to catch unhandled asynchronous errors thrown inside the child zone.
+  /// Whether to catch unhandled asynchronous errors thrown during subtree rebuild and initialization.
   final bool catchAsync;
+
+  /// Optional localized copy for the default fallback UI.
+  final ErrorBoundaryStrings? strings;
 
   /// Creates an [ErrorBoundary] widget.
   const ErrorBoundary({
@@ -81,9 +85,15 @@ class ErrorBoundary extends StatefulWidget {
     this.transitionDuration = const Duration(milliseconds: 300),
     this.transitionBuilder,
     this.catchAsync = false,
+    this.strings,
   });
 
   /// Creates an [ErrorBoundary] widget with zone-based asynchronous error interception enabled.
+  ///
+  /// Intercepts unhandled asynchronous errors thrown in Futures, microtasks, and Timers
+  /// scheduled during subtree build and `initState` phases. For button callbacks
+  /// (such as `onPressed`) executing on the event loop, use [ErrorBoundary.wrapCallback]
+  /// or [ErrorBoundary.reportError].
   const ErrorBoundary.async({
     Key? key,
     required Widget child,
@@ -97,6 +107,7 @@ class ErrorBoundary extends StatefulWidget {
     Duration? minRetryCooldown,
     Duration transitionDuration = const Duration(milliseconds: 300),
     AnimatedSwitcherTransitionBuilder? transitionBuilder,
+    ErrorBoundaryStrings? strings,
   }) : this(
           key: key,
           child: child,
@@ -111,7 +122,53 @@ class ErrorBoundary extends StatefulWidget {
           transitionDuration: transitionDuration,
           transitionBuilder: transitionBuilder,
           catchAsync: true,
+          strings: strings,
         );
+
+  /// Wraps a synchronous or asynchronous callback (such as `onPressed`) so that
+  /// any uncaught error thrown inside it is caught and reported to the nearest
+  /// enclosing [ErrorBoundary].
+  ///
+  /// Flutter gesture callbacks execute on the event loop outside the build zone.
+  /// Using [wrapCallback] allows button handlers to cleanly report errors to the boundary.
+  static VoidCallback? wrapCallback(
+    BuildContext context,
+    FutureOr<void> Function()? callback,
+  ) {
+    if (callback == null) return null;
+    return () {
+      if (!context.mounted) return;
+      final state = context.findAncestorStateOfType<_ErrorBoundaryState>();
+      try {
+        final result = callback();
+        if (result is Future) {
+          result.catchError((Object error, StackTrace stack) {
+            if (state != null && state.mounted) {
+              state.captureError(error, stack);
+            }
+          });
+        }
+      } catch (error, stack) {
+        if (state != null && state.mounted) {
+          state.captureError(error, stack);
+        }
+      }
+    };
+  }
+
+  /// Reports an error directly to the nearest enclosing [ErrorBoundary].
+  ///
+  /// Causes the boundary to transition to its fallback UI and invoke its [onError] handlers.
+  static void reportError(
+    BuildContext context,
+    Object error, [
+    StackTrace? stackTrace,
+  ]) {
+    final state = context.findAncestorStateOfType<_ErrorBoundaryState>();
+    if (state != null) {
+      state.captureError(error, stackTrace ?? StackTrace.current);
+    }
+  }
 
   @override
   State<ErrorBoundary> createState() => _ErrorBoundaryState();
@@ -126,24 +183,34 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
   bool _isRetrying = false;
   bool _isCoolingDown = false;
 
+  late final ErrorBoundaryRegistration _controllerRegistration =
+      ErrorBoundaryRegistration(
+    getName: () => widget.name,
+    reset: _reset,
+  );
+
   @override
   void initState() {
     super.initState();
-    widget.controller?.addListener(_reset);
+    widget.controller?.registerBoundary(_controllerRegistration);
   }
 
   @override
   void didUpdateWidget(ErrorBoundary oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.controller != oldWidget.controller) {
-      oldWidget.controller?.removeListener(_reset);
-      widget.controller?.addListener(_reset);
+      oldWidget.controller?.unregisterBoundary(_controllerRegistration);
+      widget.controller?.registerBoundary(_controllerRegistration);
+      if (_errorDetails != null) {
+        widget.controller
+            ?.reportError(_controllerRegistration, _errorDetails!);
+      }
     }
   }
 
   @override
   void dispose() {
-    widget.controller?.removeListener(_reset);
+    widget.controller?.unregisterBoundary(_controllerRegistration);
     _autoRetryTimer?.cancel();
     _cooldownTimer?.cancel();
     super.dispose();
@@ -152,6 +219,7 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
   /// Resets the error boundary state and attempts to rebuild the child widget tree.
   void _reset() {
     _autoRetryTimer?.cancel();
+    widget.controller?.reportReset(_controllerRegistration);
     if (mounted) {
       setState(() {
         _resetCounter++;
@@ -160,7 +228,8 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     }
   }
 
-  Future<void> _handleManualRetry(GlobalErrorBoundaryConfig? globalConfig) async {
+  Future<void> _handleManualRetry(
+      GlobalErrorBoundaryConfig? globalConfig) async {
     if (_isRetrying || _isCoolingDown) {
       return;
     }
@@ -223,8 +292,19 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     );
   }
 
-  void _handleError(
-      FlutterErrorBoundaryDetails details, GlobalErrorBoundaryConfig? globalConfig) {
+  /// Manually captures an error, e.g. from [ErrorBoundary.reportError] or [wrapCallback].
+  void captureError(Object error, StackTrace stackTrace) {
+    final details = FlutterErrorBoundaryDetails(
+      error: error,
+      stackTrace: stackTrace,
+      name: widget.name,
+    );
+    final globalConfig = GlobalErrorBoundaryConfig.of(context);
+    _handleError(details, globalConfig);
+  }
+
+  void _handleError(FlutterErrorBoundaryDetails details,
+      GlobalErrorBoundaryConfig? globalConfig) {
     final filter = widget.shouldCatch ?? globalConfig?.shouldCatch;
     if (filter != null && !filter(details)) {
       // Predicate returned false, do not intercept or catch
@@ -236,19 +316,22 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
         if (mounted) {
           widget.onError?.call(details);
           globalConfig?.onError?.call(details);
+          widget.controller?.reportError(_controllerRegistration, details);
 
           setState(() {
             _errorDetails = details;
           });
 
-          _scheduleAutoRetry();
+          _scheduleAutoRetry(globalConfig);
         }
       });
     }
   }
 
-  void _scheduleAutoRetry() {
-    final retryConfig = widget.autoRetryConfig;
+  void _scheduleAutoRetry([GlobalErrorBoundaryConfig? globalConfig]) {
+    final retryConfig = widget.autoRetryConfig ??
+        globalConfig?.autoRetryConfig ??
+        (mounted ? GlobalErrorBoundaryConfig.of(context)?.autoRetryConfig : null);
     if (retryConfig != null && _retryCount < retryConfig.maxRetries) {
       _retryCount++;
       final delay = retryConfig.getDelayForAttempt(_retryCount);
@@ -269,12 +352,18 @@ class _ErrorBoundaryState extends State<ErrorBoundary> {
     if (builder != null) {
       return builder(context, details, () => _handleManualRetry(globalConfig));
     }
+
+    final strings = widget.strings ??
+        globalConfig?.strings ??
+        const ErrorBoundaryStrings();
+
     return DefaultErrorFallback(
       details: details,
       onRetry: () => _handleManualRetry(globalConfig),
       showDebugDetails: globalConfig?.showDebugDetails,
       isRetrying: _isRetrying,
       isCoolingDown: _isCoolingDown,
+      strings: strings,
     );
   }
 

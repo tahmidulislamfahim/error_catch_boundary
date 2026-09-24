@@ -27,7 +27,11 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 /build/
 /coverage/
-
+/error_catch_boundary_code_review.md
 # Local Developer Roadmap
 ROADMAP.md
 
+branch_structure.json
+temp_auto_push.bat
+temp_interactive_push.bat
+.gitignore

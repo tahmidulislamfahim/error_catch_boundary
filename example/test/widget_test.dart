@@ -23,7 +23,7 @@ void main() {
       expect(find.text('No errors intercepted yet.'), findsOneWidget);
 
       // 3. Toggle switch to simulate build failure on Item #2
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Simulate Error in Card #2'));
       await tester.pumpAndSettle();
 
       // Clear any pending exception recorded by the framework
@@ -41,14 +41,16 @@ void main() {
       // 6. Verify error logger stream updated with intercepted exception
       expect(
           find.textContaining(
-              'Intercepted error: Exception: Uncaught render failure in Item #2'),
+              'Uncaught render failure in Item #2'),
           findsOneWidget);
 
       // 7. Toggle switch back to healthy state
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Simulate Error in Card #2'));
       await tester.pumpAndSettle();
 
       // 8. Tap retry button on the error boundary
+      await tester.ensureVisible(find.text('Retry'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
 

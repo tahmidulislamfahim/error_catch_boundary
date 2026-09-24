@@ -4,29 +4,30 @@
 
 <p align="center">
   <a href="https://pub.dev/packages/error_catch_boundary"><img src="https://img.shields.io/pub/v/error_catch_boundary.svg" alt="Pub Package"></a>
+  <a href="https://github.com/tahmidulislamfahim/error_catch_boundary/actions/workflows/test.yml"><img src="https://github.com/tahmidulislamfahim/error_catch_boundary/actions/workflows/test.yml/badge.svg" alt="CI"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
 </p>
 
 <p align="center">
-  A React-inspired error boundary wrapper for Flutter that catches subtree <code>build()</code> errors locally, prevents full-screen red error boxes or blank app screens, and displays a localized fallback UI with optional self-healing retry logic, programmatic controllers, global configs, auto-retries, async zone error interception, custom transition animations, boundary naming for telemetry, async retry hooks, and debug stack trace inspection.
+  A React-inspired error boundary wrapper for Flutter that catches subtree <code>build()</code> errors locally, prevents full-screen red error boxes or blank app screens, and displays a customizable and localizable fallback UI with optional self-healing retry logic, programmatic controllers, global configs, auto-retries with jitter and backoff caps, async zone error interception, custom transition animations, boundary naming for telemetry, async retry hooks, and debug stack trace inspection.
 </p>
 
 ---
 
 ## Key Features
 
-- **Localized UI Fallback:** Prevents a single failing widget from crashing the rest of the application UI.
-- **Async & Zone Error Interception (`ErrorBoundary.async`):** Intercept uncaught asynchronous exceptions in Futures, button callbacks (`onPressed`), and async `initState` calls within the subtree.
+- **Customizable & Localizable UI Fallback (`ErrorBoundaryStrings`):** Prevents a single failing widget from crashing the entire UI, with customizable and translatable copy across individual boundaries or app-wide.
+- **Material-Independent Fallback:** Safe to use in `MaterialApp`, `CupertinoApp`, or custom widget hierarchies without throwing "No Material widget found".
+- **Async & Zone Error Interception (`ErrorBoundary.async`):** Intercept unhandled asynchronous exceptions in Futures, microtasks, and async `initState` calls within the subtree.
+- **Callback Exception Protection (`ErrorBoundary.wrapCallback`):** Safely trap synchronous and asynchronous exceptions in button callbacks (`onPressed`) and report them into the boundary.
+- **Incident Correlation (`errorId` & `timestamp`):** Each caught incident receives a unique `errorId` and precise `timestamp` in `FlutterErrorBoundaryDetails` for logging across Sentry, Crashlytics, and analytics.
+- **Production-Hardened Auto-Retries (`AutoRetryConfig`):** Exponential backoff with optional ceiling (`maxDelay`) and randomized jitter (`jitterFactor`) to prevent thundering-herd issues on backend recovery.
+- **Rich Programmatic Controller (`ErrorBoundaryController`):** Inspect active error states (`hasError`, `errorCount`, `errors`, `failingBoundaryNames`), selectively reset named boundaries (`reset(name: ...)`), and safe against post-disposal invocation.
+- **Global Configuration (`GlobalErrorBoundaryConfig`):** Set app-wide defaults for fallback builders, strings, automated retry policies, logging callbacks, and filters.
 - **Custom Transition Animations (`transitionBuilder`):** Customize state transition animations (Scale, Slide, Fade, Flip) between child content and fallback UI.
-- **Boundary Tagging (`name`):** Attach identifier names to boundaries for rich error telemetry in Sentry / Firebase Crashlytics.
+- **Boundary Tagging (`name`):** Attach identifier names to boundaries for rich error telemetry.
 - **Async Pre-Retry Hook (`onRetry`):** Asynchronously refresh providers or re-fetch data before rebuilding, complete with a fallback loading indicator.
 - **Retry Cooldown (`minRetryCooldown`):** Rate-limit manual retry taps to prevent rapid infinite retry loops.
-- **Self-Healing / Retry Support:** Provides a `reset()` callback so users can tap "Retry" to attempt rebuilding the failed subtree.
-- **Programmatic Controller:** Reset error boundaries from external logic via `ErrorBoundaryController`.
-- **Global Configuration:** Wrap your app with `GlobalErrorBoundaryConfig` to supply app-wide logging, fallback UIs, and filters.
-- **Automated Retries:** Self-heal transient errors automatically using `AutoRetryConfig` with exponential backoff support.
-- **Selective Error Filtering:** Pass a `shouldCatch` predicate to catch specific errors while letting others propagate up.
-- **Debug Inspector:** View expandable exception stack traces directly in the fallback UI during debug mode.
 - **Zero External Dependencies:** Pure Flutter implementation utilizing native `ErrorWidget` interceptors.
 
 ---
@@ -37,7 +38,7 @@ Add `error_catch_boundary` to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  error_catch_boundary: ^1.3.0
+  error_catch_boundary: ^1.3.1
 ```
 
 Import the package in your Dart code:
@@ -62,26 +63,56 @@ ErrorBoundary.async(
 )
 ```
 
----
+### 2. Protecting Button Callbacks (`ErrorBoundary.wrapCallback`)
 
-### 2. Custom Transition Animations (`transitionBuilder`)
-
-Customize how the fallback UI animates into view when an error occurs:
+Flutter button gestures execute on the event loop outside the build zone. Use `ErrorBoundary.wrapCallback` to catch synchronous and asynchronous button exceptions and report them directly to the nearest boundary:
 
 ```dart
 ErrorBoundary(
-  transitionBuilder: (child, animation) {
-    return ScaleTransition(scale: animation, child: child);
-  },
-  child: const MyCardWidget(),
+  name: 'CheckoutActionBoundary',
+  child: Builder(
+    builder: (context) {
+      return ElevatedButton(
+        onPressed: ErrorBoundary.wrapCallback(context, () async {
+          // Both synchronous throws and rejected Futures are caught by the boundary!
+          await processPayment();
+        }),
+        child: const Text('Pay Now'),
+      );
+    },
+  ),
+)
+```
+
+You can also report any caught exception directly from any descendant context:
+
+```dart
+ErrorBoundary.reportError(context, exception, stackTrace);
+```
+
+---
+
+### 3. Localizing and Customizing Fallback Copy (`ErrorBoundaryStrings`)
+
+Customize or translate the default fallback UI copy without replacing the entire layout:
+
+```dart
+ErrorBoundary(
+  strings: const ErrorBoundaryStrings(
+    message: 'Se produjo un error en esta sección.',
+    retryButton: 'Reintentar',
+    retryingButton: 'Reintentando...',
+    debugDetailsTitle: 'Detalles técnicos',
+  ),
+  child: const MyFeedWidget(),
 )
 ```
 
 ---
 
-### 3. Global App Configuration (`GlobalErrorBoundaryConfig`)
+### 4. Global App Configuration (`GlobalErrorBoundaryConfig`)
 
-Set app-wide defaults for Sentry/Crashlytics logging, transitions, and debug details:
+Set app-wide defaults for Sentry/Crashlytics logging, automated retries, localized copy, and debug details:
 
 ```dart
 GlobalErrorBoundaryConfig(
@@ -89,9 +120,20 @@ GlobalErrorBoundaryConfig(
     Sentry.captureException(
       details.error,
       stackTrace: details.stackTrace,
-      hint: Hint.withMap({'boundary': details.name ?? 'unknown'}),
+      hint: Hint.withMap({
+        'boundary': details.name ?? 'unknown',
+        'errorId': details.errorId,
+        'timestamp': details.timestamp.toIso8601String(),
+      }),
     );
   },
+  autoRetryConfig: const AutoRetryConfig(
+    maxRetries: 2,
+    retryInterval: Duration(seconds: 2),
+    enableExponentialBackoff: true,
+    maxDelay: Duration(seconds: 10),
+    jitterFactor: 0.2, // +/- 20% jitter
+  ),
   showDebugDetails: kDebugMode,
   child: MaterialApp(
     home: const HomeScreen(),
@@ -101,62 +143,37 @@ GlobalErrorBoundaryConfig(
 
 ---
 
-### 4. Boundary Naming & Telemetry (`name`)
+### 5. Programmatic Control & Error Observation (`ErrorBoundaryController`)
 
-Tag individual boundaries so error monitoring services report exact failing UI components:
-
-```dart
-ErrorBoundary(
-  name: 'UserFeedSection',
-  onError: (details) {
-    debugPrint('Error caught in boundary: ${details.name}');
-  },
-  child: const UserFeedWidget(),
-)
-```
-
----
-
-### 5. Asynchronous Pre-Retry Hook & Cooldown Rate-Limiting
-
-Execute an asynchronous task (e.g., refresh a Riverpod/Bloc provider or re-fetch network data) before resetting, while displaying a loading spinner on the retry button:
-
-```dart
-ErrorBoundary(
-  name: 'UserProfileCard',
-  minRetryCooldown: const Duration(seconds: 2), // Rate-limit manual retries
-  onRetry: () async {
-    // Re-fetch data asynchronously before rebuilding
-    await ref.refresh(userProfileProvider.future);
-  },
-  child: const UserProfileCard(),
-)
-```
-
----
-
-### 6. Programmatic Control (`ErrorBoundaryController`)
-
-Trigger resets across one or multiple boundaries from an AppBar button or refresh handler:
+Inspect error states across attached boundaries, display a global notification badge, and selectively reset specific boundaries:
 
 ```dart
 final controller = ErrorBoundaryController();
 
 // Inside your UI
 ErrorBoundary(
+  name: 'FeedSection',
   controller: controller,
-  child: MyFeedWidget(),
+  child: const MyFeedWidget(),
 )
 
-// Reset programmatically
+// Observe error status
+if (controller.hasError) {
+  print('${controller.errorCount} section(s) failed: ${controller.failingBoundaryNames}');
+}
+
+// Reset only the FeedSection boundary
+controller.resetBoundary('FeedSection');
+
+// Or reset all attached boundaries
 controller.reset();
 ```
 
 ---
 
-### 7. Automated Retry Policy (`AutoRetryConfig`)
+### 6. Automated Retry Policy with Backoff Cap & Jitter (`AutoRetryConfig`)
 
-Automatically attempt recovery up to 3 times with 2-second intervals:
+Automatically retry failed subtrees with exponential backoff, a ceiling cap, and jitter to avoid thundering herd spikes:
 
 ```dart
 ErrorBoundary(
@@ -164,6 +181,8 @@ ErrorBoundary(
     maxRetries: 3,
     retryInterval: Duration(seconds: 2),
     enableExponentialBackoff: true,
+    maxDelay: Duration(seconds: 8), // Cap at 8 seconds
+    jitterFactor: 0.2,               // +/- 20% randomized jitter
   ),
   child: MyAsyncDataCard(),
 )
@@ -171,7 +190,7 @@ ErrorBoundary(
 
 ---
 
-### 8. Custom Fallback UI
+### 7. Custom Fallback UI
 
 Provide a `fallbackBuilder` to display custom error UI tailored to your design system:
 
@@ -184,7 +203,7 @@ ErrorBoundary(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('Failed to load ${details.name ?? 'item'}'),
+          Text('Failed to load ${details.name ?? 'item'} (${details.errorId})'),
           ElevatedButton(
             onPressed: reset,
             child: const Text('Try Again'),

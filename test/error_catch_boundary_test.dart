@@ -1,4 +1,6 @@
+import 'dart:math' as math;
 import 'package:error_catch_boundary/error_catch_boundary.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -582,5 +584,345 @@ void main() {
     expect(customTransitionUsed, isTrue);
     expect(find.byType(ScaleTransition), findsOneWidget);
     expect(find.byType(DefaultErrorFallback), findsOneWidget);
+  });
+
+  test('AutoRetryConfig respects maxDelay cap and jitterFactor', () {
+    const config = AutoRetryConfig(
+      maxRetries: 5,
+      retryInterval: Duration(seconds: 2),
+      enableExponentialBackoff: true,
+      maxDelay: Duration(seconds: 6),
+      jitterFactor: 0.2,
+    );
+
+    // attempt 1: 2s (capped at 6s)
+    // attempt 2: 4s (capped at 6s)
+    // attempt 3: 8s -> capped at 6s
+    final delayNoJitter = const AutoRetryConfig(
+      maxRetries: 5,
+      retryInterval: Duration(seconds: 2),
+      enableExponentialBackoff: true,
+      maxDelay: Duration(seconds: 6),
+    ).getDelayForAttempt(3);
+    expect(delayNoJitter, equals(const Duration(seconds: 6)));
+
+    // With jitter with fixed Random seed
+    final fixedRandom = math.Random(42);
+    final delayWithJitter = config.getDelayForAttempt(3, fixedRandom);
+    // Base delay 6s with +/- 20% jitter is between 4.8s and 6.0s (capped at 6s)
+    expect(delayWithJitter.inMilliseconds, greaterThanOrEqualTo(4800));
+    expect(delayWithJitter.inMilliseconds, lessThanOrEqualTo(6000));
+  });
+
+  test('FlutterErrorBoundaryDetails generates unique errorId and timestamp', () {
+    final details1 = FlutterErrorBoundaryDetails(
+      error: 'test error 1',
+      stackTrace: StackTrace.current,
+    );
+    final details2 = FlutterErrorBoundaryDetails(
+      error: 'test error 2',
+      stackTrace: StackTrace.current,
+    );
+
+    expect(details1.errorId, isNotEmpty);
+    expect(details2.errorId, isNotEmpty);
+    expect(details1.errorId, isNot(equals(details2.errorId)));
+    expect(details1.timestamp, isNotNull);
+    expect(details1.toString(), contains(details1.errorId));
+  });
+
+  testWidgets('renders customizable and localized strings in DefaultErrorFallback',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    const customStrings = ErrorBoundaryStrings(
+      message: 'Un error ha ocurrido en esta sección.',
+      retryButton: 'Reintentar',
+      retryingButton: 'Reintentando...',
+      debugDetailsTitle: 'Detalles de depuración',
+    );
+
+    try {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ErrorBoundary(
+            strings: customStrings,
+            child: BuggyWidget(shouldThrow: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    expect(find.text('Un error ha ocurrido en esta sección.'), findsOneWidget);
+    expect(find.text('Reintentar'), findsOneWidget);
+  });
+
+  testWidgets('DefaultErrorFallback renders safely inside CupertinoApp without Material ancestor error',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    try {
+      await tester.pumpWidget(
+        const CupertinoApp(
+          home: ErrorBoundary(
+            child: BuggyWidget(shouldThrow: true),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+    expect(find.text('Something went wrong in this section.'), findsOneWidget);
+    expect(find.text('Retry'), findsOneWidget);
+  });
+
+  testWidgets('ErrorBoundary.wrapCallback catches a synchronous throw from onPressed',
+      (tester) async {
+    FlutterErrorBoundaryDetails? caughtDetails;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ErrorBoundary(
+          onError: (details) {
+            caughtDetails = details;
+          },
+          child: Builder(
+            builder: (context) {
+              return ElevatedButton(
+                onPressed: ErrorBoundary.wrapCallback(context, () {
+                  throw Exception('sync onPressed error');
+                }),
+                child: const Text('Tap me'),
+              );
+            },
+          ),
+        ),
+      ),
+    ));
+
+    expect(find.text('Tap me'), findsOneWidget);
+    await tester.tap(find.text('Tap me'));
+    await tester.pumpAndSettle();
+
+    expect(caughtDetails, isNotNull);
+    expect(caughtDetails!.error.toString(), contains('sync onPressed error'));
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+  });
+
+  testWidgets('ErrorBoundary.wrapCallback catches an asynchronous throw from onPressed',
+      (tester) async {
+    FlutterErrorBoundaryDetails? caughtDetails;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ErrorBoundary(
+          onError: (details) {
+            caughtDetails = details;
+          },
+          child: Builder(
+            builder: (context) {
+              return ElevatedButton(
+                onPressed: ErrorBoundary.wrapCallback(context, () async {
+                  await Future<void>.delayed(const Duration(milliseconds: 10));
+                  throw Exception('async onPressed error');
+                }),
+                child: const Text('Tap me async'),
+              );
+            },
+          ),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('Tap me async'));
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pumpAndSettle();
+
+    expect(caughtDetails, isNotNull);
+    expect(caughtDetails!.error.toString(), contains('async onPressed error'));
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+  });
+
+  testWidgets('inherits autoRetryConfig from GlobalErrorBoundaryConfig',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    int buildCount = 0;
+
+    try {
+      await tester.pumpWidget(
+        GlobalErrorBoundaryConfig(
+          autoRetryConfig: const AutoRetryConfig(
+            maxRetries: 2,
+            retryInterval: Duration(milliseconds: 100),
+          ),
+          child: MaterialApp(
+            home: ErrorBoundary(
+              child: Builder(
+                builder: (context) {
+                  buildCount++;
+                  if (buildCount == 1) {
+                    throw Exception('First build failure');
+                  }
+                  return Text('Recovered on build $buildCount');
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+
+    await tester.pump(const Duration(milliseconds: 150));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(buildCount, equals(2));
+    expect(find.text('Recovered on build 2'), findsOneWidget);
+    expect(find.byType(DefaultErrorFallback), findsNothing);
+  });
+
+  testWidgets('ErrorBoundaryController tracks error states, supports targeted reset, and is disposal-safe',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    final controller = ErrorBoundaryController();
+    bool failBoundaryA = true;
+    bool failBoundaryB = true;
+
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Column(
+            children: [
+              ErrorBoundary(
+                name: 'BoundaryA',
+                controller: controller,
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    if (failBoundaryA) throw Exception('Boundary A error');
+                    return const Text('Boundary A OK');
+                  },
+                ),
+              ),
+              ErrorBoundary(
+                name: 'BoundaryB',
+                controller: controller,
+                child: StatefulBuilder(
+                  builder: (context, setState) {
+                    if (failBoundaryB) throw Exception('Boundary B error');
+                    return const Text('Boundary B OK');
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    // Both boundaries should be in error state
+    expect(controller.hasError, isTrue);
+    expect(controller.errorCount, equals(2));
+    expect(controller.failingBoundaryNames, containsAll(['BoundaryA', 'BoundaryB']));
+
+    // Target reset only BoundaryA
+    failBoundaryA = false;
+    controller.resetBoundary('BoundaryA');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Boundary A OK'), findsOneWidget);
+    expect(controller.errorCount, equals(1));
+    expect(controller.failingBoundaryNames, equals(['BoundaryB']));
+
+    // Reset remaining boundaries
+    failBoundaryB = false;
+    controller.reset();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Boundary B OK'), findsOneWidget);
+    expect(controller.hasError, isFalse);
+    expect(controller.errorCount, equals(0));
+
+    // Post-disposal reset must not throw
+    controller.dispose();
+    expect(controller.isDisposed, isTrue);
+    expect(() => controller.reset(), returnsNormally);
+  });
+
+  testWidgets('nested ErrorBoundary isolates errors to the inner boundary and recovers independently',
+      (WidgetTester tester) async {
+    final originalOnError = FlutterError.onError;
+    FlutterError.onError = (details) {};
+
+    bool failInner = true;
+
+    try {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ErrorBoundary(
+              name: 'OuterBoundary',
+              child: Column(
+                children: [
+                  const Text('Outer Header'),
+                  ErrorBoundary(
+                    name: 'InnerBoundary',
+                    child: StatefulBuilder(
+                      builder: (context, setState) {
+                        if (failInner) throw Exception('Inner widget failure');
+                        return const Text('Inner Content OK');
+                      },
+                    ),
+                  ),
+                  const Text('Outer Footer'),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    } finally {
+      FlutterError.onError = originalOnError;
+    }
+
+    // Outer boundary content is still visible
+    expect(find.text('Outer Header'), findsOneWidget);
+    expect(find.text('Outer Footer'), findsOneWidget);
+
+    // Inner boundary shows fallback UI
+    expect(find.byType(DefaultErrorFallback), findsOneWidget);
+    expect(find.text('Inner Content OK'), findsNothing);
+
+    // Retry inner boundary
+    failInner = false;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    // Now inner is recovered and outer remains intact
+    expect(find.text('Inner Content OK'), findsOneWidget);
+    expect(find.text('Outer Header'), findsOneWidget);
+    expect(find.text('Outer Footer'), findsOneWidget);
+    expect(find.byType(DefaultErrorFallback), findsNothing);
   });
 }
