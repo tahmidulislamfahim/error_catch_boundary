@@ -31,7 +31,4 @@ migrate_working_dir/
 # Local Developer Roadmap
 ROADMAP.md
 
-branch_structure.json
-temp_auto_push.bat
-temp_interactive_push.bat
 .gitignore
